@@ -1,0 +1,19 @@
+{
+    "files.exclude": {
+        "**/*.o": true,
+        "**/*.ko": true,
+        "**/*.cmd": true,
+        "**/*.d": true,
+        "**/*.mod": true,
+        "**/.tmp*": true,
+    },
+    "files.associations": {
+        "*.txt": "log",
+        "*.wxml": "xml",
+        "*.wxss": "css",
+        "nfnetlink_queue.h": "c",
+        "header_insert.h": "c",
+        "dns_handle_k.h": "c",
+        "socket.h": "c"
+    }
+}

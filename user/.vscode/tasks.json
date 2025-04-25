@@ -1,0 +1,28 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build nfq_handler",
+            "type": "shell",
+            "command": "gcc",
+            "args": [
+                "-g",
+                "-I/usr/include/libnetfilter_queue",
+                "-o",
+                "${workspaceFolder}/nfq_handler",
+                "${workspaceFolder}/nfq_handler.c",
+                "${workspaceFolder}/dns_utils.c",
+                "${workspaceFolder}/txt_query_thread.c",
+                "-lnetfilter_queue",
+                "-lresolv"  // 添加此行以链接 libresolv 库
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": [
+                "$gcc"
+            ]
+        }
+    ]
+}

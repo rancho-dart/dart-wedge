@@ -1,0 +1,24 @@
+{
+    "files.associations": {
+        "*.txt": "log",
+        "*.wxml": "xml",
+        "*.wxss": "css",
+        "libnetfilter_queue.h": "c",
+        "bit": "c",
+        "*.tcc": "c",
+        "cmath": "c",
+        "compare": "c",
+        "concepts": "c",
+        "type_traits": "c",
+        "limits": "c",
+        "typeinfo": "c"
+    },
+    "files.exclude": {
+        "**/*.o": true,
+        "**/*.so": true,
+        "**/nfq_handler": true
+    },
+    "search.exclude": {
+        "**/*.o": true
+    }
+}
