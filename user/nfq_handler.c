@@ -186,6 +186,15 @@ void free_pending_response()
     response_chain_head = NULL;
 }
 
+bool is_dns_server(char *src_addr)
+{
+    for (int i = 0; i < MAX_DNS_SERVERS && g_dns_servers[i]; i++)
+        if (strcmp(src_addr, g_dns_servers[i]) == 0)
+            return true;
+
+    return false;
+}
+
 // NFQUEUE 回调
 static int cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
               struct nfq_data *nfa, void *data)
@@ -207,52 +216,48 @@ static int cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
     if (len < 0)
         goto out;
 
+    // 有时Linux主机上会配置127.0.0.53为默认的DNS服务器（实际是一个本地的代理），如果本地查不到会转发到系统配置的真实的DNS SERVER（譬如由DHCP SERVER返回的DNS SERVER）
+    // 这种情况会导致同一个A记录响应报文产生2次触发（一次是报文从DNS服务器抵达物理网卡，另一次是报文从本地代理抵达127.0.0.1）并引发混乱
+    // 为了简化流程，我们只处理系统配置的默认的DNS SERVER的响应
     struct iphdr *iph = (struct iphdr *)payload;
     char src_addr[INET_ADDRSTRLEN];
     inet_ntop(AF_INET, &iph->saddr, src_addr, sizeof(src_addr));
 
-    // 有时Linux主机上会配置127.0.0.53为默认的DNS服务器（实际是一个本地的代理），如果本地查不到会转发到系统配置的真实的DNS SERVER（譬如由DHCP SERVER返回的DNS SERVER）
-    // 这种情况会导致同一个A记录响应报文产生2次触发（一次是报文从DNS服务器抵达物理网卡，另一次是报文从本地代理抵达127.0.0.1）并引发混乱
-    // 为了简化流程，我们只处理系统配置的默认的DNS SERVER的响应
-    bool is_dns_server = false;
-    for (int i = 0; i < MAX_DNS_SERVERS && g_dns_servers[i]; i++)
-    {
-        if (strcmp(src_addr, g_dns_servers[i]) == 0)
-        {
-            is_dns_server = true;
-            break;
-        }
-    }
-    if (!is_dns_server)
+    if (!is_dns_server(src_addr))
     {
         printf("Packet from non-system-default DNS server: %s, let pass\n", src_addr);
         goto out;
     }
 
-    if (iph->protocol != IPPROTO_UDP)
-        goto out;
+    /////////////////////////////////////////////////////////////////////////////
+    // // This part is ensured by iptables, so we don't need to check it again
+    // if (iph->protocol != IPPROTO_UDP)
+    //     goto out;
 
-    struct udphdr *udph = (struct udphdr *)(payload + iph->ihl * 4);
-    if (ntohs(udph->source) != 53)
-        goto out;
+    // struct udphdr *udph = (struct udphdr *)(payload + iph->ihl * 4);
+    // if (ntohs(udph->source) != 53)
+    //     goto out;
+    ////////////////////////////////////////////////////////////////////////////
 
-    unsigned char *dns_payload = payload + iph->ihl * 4 + sizeof(struct udphdr);
-    int dns_len = len - (dns_payload - payload);
+    unsigned char *dns_pkt = payload + iph->ihl * 4 + sizeof(struct udphdr);
+    int dns_pkt_len = len - (dns_pkt - payload);
 
     char domain[MAX_DOMAIN_LEN];
-    if (is_a_record_response(dns_payload, dns_len, domain))
+    if (is_a_record_response(dns_pkt, dns_pkt_len, domain))
     {
         printf("Received A record response for domain: %s, id: %d, len: %d\n", domain, id, len);
+         
         enqueue_txt_query(domain);
         printf("Enqueued TXT query for domain: %s\n", domain);
-        insert_pending_response(domain, id, payload, len);
+        insert_pending_response(domain, id, payload, len); // 将报文复制后暂时存储到链表中
         printf("Inserted pending response for domain: %s\n", domain);
         printf("------\n");
-        return nfq_set_verdict(qh, id, NF_DROP, 0, NULL);
+
+        return nfq_set_verdict(qh, id, NF_DROP, 0, NULL); // 通知内核丢弃当前报文
     }
 
     int version = 0;
-    if (is_txt_record_response(dns_payload, dns_len, &version, domain))
+    if (is_txt_record_response(dns_pkt, dns_pkt_len, &version, domain))
     {
         if (version > 0)
         {
