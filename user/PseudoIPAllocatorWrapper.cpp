@@ -3,11 +3,7 @@
 #include <cstring>
 #include <map>
 
-// 定义结构体 DomainInfo
-struct DomainInfo {
-    std::string domain;
-    uint32_t real_ip;
-};
+
 
 extern "C"
 {

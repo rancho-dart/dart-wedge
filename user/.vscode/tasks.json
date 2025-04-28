@@ -15,8 +15,9 @@
                 "${workspaceFolder}/dns_utils.c",
                 "${workspaceFolder}/checksum.c",
                 "${workspaceFolder}/txt_query_thread.c",
-                "${workspaceFolder}/PseudoIPAllocator.cpp",
-                "${workspaceFolder}/PseudoIPAllocatorWrapper.cpp",
+                "${workspaceFolder}/pseudo_ip_capi.cpp",
+                // "${workspaceFolder}/PseudoIPAllocator.cpp",
+                // "${workspaceFolder}/PseudoIPAllocatorWrapper.cpp",
                 "-lnetfilter_queue",
                 "-lresolv",
                 "-lpthread"

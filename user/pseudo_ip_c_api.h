@@ -7,9 +7,15 @@
 extern "C" {
 #endif
 
+// 定义结构体 DomainInfo
+struct DomainInfo {
+    std::string domain;
+    uint32_t real_ip;
+};
+
 uint32_t allocate_pseudo_ip(const char* domain, uint32_t real_ip, uint32_t ttl);
 uint32_t query_pseudo_ip(const char* domain);
-const char* get_domain_by_pseudo_ip(uint32_t pseudo_ip_str);
+struct DomainInfo get_domain_by_pseudo_ip(uint32_t pseudo_ip_str);
 void cleanup_expired();
 bool is_pseudo_ip(uint32_t ip);
 

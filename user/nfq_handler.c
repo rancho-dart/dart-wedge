@@ -19,9 +19,10 @@
 #include <arpa/inet.h>
 #include "dns_utils.h" // 包含 extract_final_a_domain 和 query_txt_record 的声明
 #include "txt_query.thread.h"
-#include "pseudo_ip_c_api.h"
+// #include "pseudo_ip_c_api.h"
 #include "checksum.h"
 #include "dart.h"
+#include "pseudo_ip_capi.h"
 
 #ifndef NF_ACCEPT
 #define NF_ACCEPT 1
@@ -262,15 +263,15 @@ static int cb_inbound_dns(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg, struc
     {
         printf("Host %s supports DART\n", domain);
 
-        uint32_t pseudo_ip = allocate_pseudo_ip(domain, ntohl(ip.s_addr), 3600);
-        if (pseudo_ip == 0)
+        const PseudoIPEntryC* entry = pseudo_ip_allocator_allocate(domain, ntohl(ip.s_addr));
+
+        if (entry == NULL)
         {
             printf("Failed to allocate pseudo IP for %s\n", domain);
             return nfq_set_verdict(qh, id, NF_ACCEPT, len, payload);
         }
-        // 将 pseudo_ip 转换为字符串形式
-        // pseudo_ip_addr.s_addr = htonl(pseudo_ip); // 确保网络字节序
-        pseudo_ip_addr.s_addr = htonl(pseudo_ip);
+
+        pseudo_ip_addr.s_addr = htonl(entry->pseudo_ip);
         char *pseudo_ip_str = strdup(inet_ntoa(pseudo_ip_addr));
         char *ip_str = strdup(inet_ntoa(ip));
         printf("Replace real IP %s with pseudo IP %s\n", ip_str, pseudo_ip_str);
@@ -392,8 +393,14 @@ static int cb_outbound_ip(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg, struc
         return nfq_set_verdict(qh, 0, NF_ACCEPT, 0, NULL);
     }
     
+    const PseudoIPEntryC* entry = pseudo_ip_allocator_find_by_pseudo_ip(ip_header->daddr);
+    if (entry == NULL)
+    {
+        printf("Failed to find pseudo IP entry for %s\n", ip_header->daddr);
+        return nfq_set_verdict(qh, 0, NF_ACCEPT, 0, NULL);
+    }
 
-    const char *dest_fqdn = get_domain_by_pseudo_ip(ip_header->daddr);
+    const char *dest_fqdn = entry->domain;
     const char *src_fqdn = localhost_fqdn;
 
     // 修改报文：插入UDP头和Dart头
