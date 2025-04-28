@@ -4,17 +4,22 @@
         {
             "label": "build nfq_handler",
             "type": "shell",
-            "command": "gcc",
+            "command": "g++",
             "args": [
                 "-g",
+                "-std=c++17",
                 "-I/usr/include/libnetfilter_queue",
                 "-o",
                 "${workspaceFolder}/nfq_handler",
                 "${workspaceFolder}/nfq_handler.c",
                 "${workspaceFolder}/dns_utils.c",
+                "${workspaceFolder}/checksum.c",
                 "${workspaceFolder}/txt_query_thread.c",
+                "${workspaceFolder}/PseudoIPAllocator.cpp",
+                "${workspaceFolder}/PseudoIPAllocatorWrapper.cpp",
                 "-lnetfilter_queue",
-                "-lresolv"  // 添加此行以链接 libresolv 库
+                "-lresolv",
+                "-lpthread"
             ],
             "group": {
                 "kind": "build",

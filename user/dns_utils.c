@@ -3,15 +3,115 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdbool.h>
-#include <unistd.h>
 #include <arpa/inet.h>
-#include <arpa/nameser.h>
-#include <netinet/in.h>
-
+#include <netdb.h>
 #include "dns_utils.h"
 
-int hex_dump(const char *msg, const unsigned char *data, size_t len)
+bool traversing_question_sec(const unsigned char *payload, size_t len, const unsigned char **ptr, char *domain_out)
+{
+    const unsigned char *end = payload + len;
+
+    if (len < sizeof(HEADER))
+        return false;
+
+    HEADER *dns = (HEADER *)payload;
+    int qdcount = ntohs(dns->qdcount);
+
+    // 跳过 question 区域
+    for (int i = 0; i < qdcount; i++)
+    {
+        char tmp[MAX_DOMAIN_LEN];
+        int n = dn_expand(payload, end, *ptr, tmp, sizeof(tmp));
+        if (n < 0)
+            return false;
+        if (i == 0)
+            strcpy(domain_out, tmp);
+
+        *ptr += n + 4; // 跳过 QTYPE 和 QCLASS
+        // 让for循环执行完，跳过剩余所有的Question（虽然通常只有1个）
+    }
+    return true;
+}
+// 修改后的 follow_cname_chain 函数，从 DNS ANSWER 报文中追踪 CNAME 链，返回最终的 A 记录中的域名和 IP
+int follow_cname_chain(const unsigned char *dns_pkt, int len, char *domain_out, char *cname_out, struct in_addr *ip_out, int *a_record_pos)
+{
+    const unsigned char *end = dns_pkt + len;
+    const unsigned char *ptr = dns_pkt + sizeof(HEADER);
+
+    if (len < sizeof(HEADER))
+        return -1;
+    //
+    HEADER *dns = (HEADER *)dns_pkt;
+    int qdcount = ntohs(dns->qdcount);
+    int ancount = ntohs(dns->ancount);
+
+    char domain[MAX_DOMAIN_LEN];
+    // hex_dump("DNS packet", dns_pkt, len);
+    traversing_question_sec(dns_pkt, len, &ptr, domain); // 遍历DNS报文的Question区域，返回查询的domain，同时将ptr移动到下一个区域
+
+    // 处理 answer 区域
+    char cname_chain_node[MAX_DOMAIN_LEN];
+    strcpy(cname_chain_node, domain); // cname chain begins from domain
+
+    for (int i = 0; i < ancount && ptr < end; i++)
+    {
+        char name[MAX_DOMAIN_LEN];
+        int n = dn_expand(dns_pkt, end, ptr, name, sizeof(name));
+        if (n < 0)
+            break;
+
+        ptr += n;
+
+        if (ptr + 10 > end)
+            break;
+
+        uint16_t type = ntohs(*(uint16_t *)ptr);
+        ptr += 2;
+        uint16_t qclass = ntohs(*(uint16_t *)ptr);
+        ptr += 2;
+        uint32_t ttl = ntohl(*(uint32_t *)ptr);
+        ptr += 4;
+        uint16_t rdlength = ntohs(*(uint16_t *)ptr);
+        ptr += 2;
+
+        if (ptr + rdlength > end)
+            break;
+
+        if (type == T_CNAME)
+        {
+            // 跟踪 CNAME 指向的新域名
+            char cname[MAX_DOMAIN_LEN];
+            if (dn_expand(dns_pkt, end, ptr, cname, sizeof(cname)) >= 0)
+            {
+                if (strcmp(cname_chain_node, name) == 0) // if equal, replace chain node to new cname, to follow the chain
+                    strcpy(cname_chain_node, cname);
+                ptr += rdlength;
+                continue;
+            }
+        }
+        else if (type == T_A)
+        {
+            // 找到 A 记录，返回当前域名和 IP 地址
+            if (strcmp(cname_chain_node, name) == 0)
+            {
+                strcpy(domain_out, domain);
+                if (strcmp(domain, name) != 0)  // A record is provided by none-original domain (domain -> cname -> A)
+                    strcpy(cname_out, name);
+                else                            // A record is provided by original domain (domain -> A)
+                    strcpy(cname_out, "");
+                memcpy(ip_out, ptr, sizeof(*ip_out));
+                *a_record_pos = ptr - dns_pkt; // 记录 A 记录的位置
+                break;
+            }
+        }
+
+        ptr += rdlength;
+    }
+
+    return 0;
+}
+
+void hex_dump(const char *msg, const unsigned char *data, size_t len)
 {
     printf("%s Hex Dump:\n", msg);
     for (size_t i = 0; i < len; i += 16)
@@ -72,9 +172,11 @@ bool is_a_record_response(const unsigned char *dns_pkt, size_t len, char *domain
             // strncpy(domain, tmp, MAX_DOMAIN_LEN);
             // domain[MAX_DOMAIN_LEN - 1] = '\0';
             strcpy(domain, tmp); // tmp中的域名应当是0结尾的字符串
+            // 到这里我们已经取得第一个问题区域的域名，但完成后并不退出循环，因为我们要移动cur指针直到跳过整个问题区域
         }
     }
 
+    // 现在cur已经超过了Answer区域。如果存在Answer区域，cur现在实际指向answer区域的起始位置
     // 检查 answer 区域是否存在 A 记录
     for (int i = 0; i < ancount; i++)
     {
@@ -129,7 +231,8 @@ bool is_txt_record_response(const unsigned char *dns_pkt, size_t len, int *versi
             cur += n + 4; // 跳过 QTYPE 和 QCLASS
 
             // 将解析出的域名赋值给 domain 参数
-            if (domain) {
+            if (domain)
+            {
                 strncpy(domain, tmp, MAX_DOMAIN_LEN - 1);
                 domain[MAX_DOMAIN_LEN - 1] = '\0'; // 确保字符串以 \0 结尾
             }
@@ -187,7 +290,6 @@ bool is_txt_record_response(const unsigned char *dns_pkt, size_t len, int *versi
     *version = 0; // 未找到匹配的 TXT 记录
     return false; // 不是 TXT 记录响应
 }
-
 
 // 读取系统默认的 DNS 服务器
 int get_system_dns_servers(char *dns_servers[], int max_servers)
@@ -364,7 +466,7 @@ int extract_final_a_domain(const unsigned char *payload, int len, char *domain_o
 
         uint16_t type = ntohs(*(uint16_t *)ptr);
         ptr += 2;
-        uint16_t class = ntohs(*(uint16_t *)ptr);
+        uint16_t qclass = ntohs(*(uint16_t *)ptr);
         ptr += 2;
         uint32_t ttl = ntohl(*(uint32_t *)ptr);
         ptr += 4;

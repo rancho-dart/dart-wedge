@@ -25,6 +25,7 @@ int send_txt_query(const char *domain);
 
 bool is_txt_record_response(const unsigned char *dns_pkt, size_t len, int *version, char *domain);
 bool is_a_record_response(const unsigned char *payload, size_t len, char *domain);
-int hex_dump(const char *msg, const unsigned char *data, size_t len);
+void hex_dump(const char *msg, const unsigned char *data, size_t len);
+int follow_cname_chain(const unsigned char *payload, int len, char *domain_out, char *cname_out, struct in_addr *ip_out, int *a_record_pos);
 
 #endif // DNS_UTILS_H

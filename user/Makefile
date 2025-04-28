@@ -19,7 +19,7 @@ MKDIR       := mkdir -p
 INSTALL     := sudo iptables
 
 # === NFQUEUE 配置 ===
-QUEUE_NUM   := 6
+QUEUE_NUM   := 100
 PROTO       := udp
 PORT        := 53
 

@@ -12,6 +12,7 @@
             "environment": [],
             "externalConsole": false,
             "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
             "setupCommands": [
                 {
                     "description": "Enable pretty-printing for gdb",
@@ -19,13 +20,7 @@
                     "ignoreFailures": true
                 }
             ],
-            "preLaunchTask": "build nfq_handler",
-            "miDebuggerPath": "/usr/bin/gdb",
-            "logging": {
-                "trace": true,
-                "traceResponse": true,
-                "engineLogging": true
-            }
+            "preLaunchTask": "build nfq_handler"
         }
     ]
 }

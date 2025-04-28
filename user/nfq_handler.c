@@ -15,6 +15,8 @@
 #include <arpa/inet.h>
 #include "dns_utils.h" // 包含 extract_final_a_domain 和 query_txt_record 的声明
 #include "txt_query.thread.h"
+#include "pseudo_ip_c_api.h"
+#include "checksum.h"
 
 #ifndef NF_ACCEPT
 #define NF_ACCEPT 1
@@ -24,7 +26,7 @@
 #define NF_DROP 0
 #endif
 
-#define NFQUEUE_NUM 6
+#define NFQUEUE_NUM 100
 
 // key: DNS response id or domain
 // value: 包含原始A记录报文，状态、时间戳等
@@ -67,13 +69,13 @@ int insert_pending_response(const char *domain, uint32_t id, unsigned char *payl
     // hex_dump("Original payload", payload, len);
 
     // 插入待处理请求
-    struct pending_response *res = malloc(sizeof(struct pending_response));
+    struct pending_response *res = (struct pending_response *)malloc(sizeof(struct pending_response));
     if (!res)
         return -1;
 
     strncpy(res->domain, domain, MAX_DOMAIN_LEN);
     res->id = id;
-    res->original_payload = malloc(len);
+    res->original_payload = (unsigned char *)malloc(len);
     if (!res->original_payload)
     {
         free(res);
@@ -85,7 +87,7 @@ int insert_pending_response(const char *domain, uint32_t id, unsigned char *payl
     res->txt_received = false;
 
     // 将 req 插入到链表头部
-    struct pending_response_node *new_node = malloc(sizeof(struct pending_response_node));
+    struct pending_response_node *new_node = (struct pending_response_node *)malloc(sizeof(struct pending_response_node));
     if (!new_node)
     {
         free(res->original_payload);
@@ -195,104 +197,98 @@ bool is_dns_server(char *src_addr)
     return false;
 }
 
+
 // NFQUEUE 回调
-static int cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
-              struct nfq_data *nfa, void *data)
+static int cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg, struct nfq_data *nfa, void *data)
 {
-    (void)nfmsg; // 明确 nfmsg 未被使用
-    (void)data;  // 明确 data 未被使用
+    (void)nfmsg;
+    (void)data;
 
     int len = 0;
     uint32_t id = 0;
     unsigned char *payload = NULL;
+    bool support_dart = false;
 
     struct nfqnl_msg_packet_hdr *ph = nfq_get_msg_packet_hdr(nfa);
     if (!ph)
-        goto out;
+    {
+        printf("Invalid packet header, letting the packet pass.\n");
+        return nfq_set_verdict(qh, id, NF_ACCEPT, len, payload);
+    }
 
     id = ntohl(ph->packet_id);
-
     len = nfq_get_payload(nfa, &payload);
     if (len < 0)
-        goto out;
+    {
+        printf("Failed to get payload, letting the packet pass.\n");
+        return nfq_set_verdict(qh, id, NF_ACCEPT, len, payload);
+    }
 
-    // 有时Linux主机上会配置127.0.0.53为默认的DNS服务器（实际是一个本地的代理），如果本地查不到会转发到系统配置的真实的DNS SERVER（譬如由DHCP SERVER返回的DNS SERVER）
-    // 这种情况会导致同一个A记录响应报文产生2次触发（一次是报文从DNS服务器抵达物理网卡，另一次是报文从本地代理抵达127.0.0.1）并引发混乱
-    // 为了简化流程，我们只处理系统配置的默认的DNS SERVER的响应
     struct iphdr *iph = (struct iphdr *)payload;
     char src_addr[INET_ADDRSTRLEN];
     inet_ntop(AF_INET, &iph->saddr, src_addr, sizeof(src_addr));
 
     if (!is_dns_server(src_addr))
     {
-        printf("Packet from non-system-default DNS server: %s, let pass\n", src_addr);
-        goto out;
+        printf("Packet from non-system-default DNS server: %s, letting it pass.\n", src_addr);
+        return nfq_set_verdict(qh, id, NF_ACCEPT, len, payload);
     }
-
-    /////////////////////////////////////////////////////////////////////////////
-    // // This part is ensured by iptables, so we don't need to check it again
-    // if (iph->protocol != IPPROTO_UDP)
-    //     goto out;
-
-    // struct udphdr *udph = (struct udphdr *)(payload + iph->ihl * 4);
-    // if (ntohs(udph->source) != 53)
-    //     goto out;
-    ////////////////////////////////////////////////////////////////////////////
+    struct udphdr *udph = (struct udphdr *)(payload + iph->ihl * 4);
 
     unsigned char *dns_pkt = payload + iph->ihl * 4 + sizeof(struct udphdr);
     int dns_pkt_len = len - (dns_pkt - payload);
 
-    char domain[MAX_DOMAIN_LEN];
-    if (is_a_record_response(dns_pkt, dns_pkt_len, domain))
+    char domain[MAX_DOMAIN_LEN] = {0};
+    char cname[MAX_DOMAIN_LEN] = {0};
+    struct in_addr ip;
+    struct in_addr pseudo_ip_addr;
+    int a_record_pos = -1;
+    int ret = follow_cname_chain(dns_pkt, len, domain, cname, &ip, &a_record_pos);
+    printf("Followed CNAME chain for domain: %s, cname: %s, ip: %s\n", domain, cname, inet_ntoa(ip));
+    if (ret < 0)
     {
-        printf("Received A record response for domain: %s, id: %d, len: %d\n", domain, id, len);
-         
-        enqueue_txt_query(domain);
-        printf("Enqueued TXT query for domain: %s\n", domain);
-        insert_pending_response(domain, id, payload, len); // 将报文复制后暂时存储到链表中
-        printf("Inserted pending response for domain: %s\n", domain);
-        printf("------\n");
-
-        return nfq_set_verdict(qh, id, NF_DROP, 0, NULL); // 通知内核丢弃当前报文
+        printf("Failed to follow CNAME chain, letting the packet pass.\n");
+        return nfq_set_verdict(qh, id, NF_ACCEPT, len, payload);
     }
 
-    int version = 0;
-    if (is_txt_record_response(dns_pkt, dns_pkt_len, &version, domain))
+    if (strncmp(cname, "dart-host.", 10) == 0 || strncmp(cname, "dart-gateway.", 13) == 0)
     {
-        if (version > 0)
+        printf("Host %s supports DART\n", domain);
+
+        uint32_t pseudo_ip = allocate_pseudo_ip(domain, ntohl(ip.s_addr), 3600);
+        if (pseudo_ip == 0)
         {
-            printf("Host %s support DART Version: %d\n", domain, version);
+            printf("Failed to allocate pseudo IP for %s\n", domain);
+            return nfq_set_verdict(qh, id, NF_ACCEPT, len, payload);
         }
+        // 将 pseudo_ip 转换为字符串形式
+        // pseudo_ip_addr.s_addr = htonl(pseudo_ip); // 确保网络字节序
+        pseudo_ip_addr.s_addr = htonl(pseudo_ip);
+        char *pseudo_ip_str = strdup(inet_ntoa(pseudo_ip_addr));
+        char *ip_str = strdup(inet_ntoa(ip));
+        printf("Replace real IP %s with pseudo IP %s\n", ip_str, pseudo_ip_str);
+        free(ip_str);
+        free(pseudo_ip_str);
 
-        struct pending_response *res = pickup_response(domain);
+        // replace real IP with pseudo IP, the position is a_record_pos
+        int *ip_ptr = (int *)(dns_pkt + a_record_pos);
+        memcpy(ip_ptr, &pseudo_ip_addr.s_addr, sizeof(pseudo_ip_addr.s_addr));
+        
 
-        if (res)
-        {
-            printf("Picked up original A record domain: %s, id: %d, length: %d\n", res->domain, res->id, res->original_len);
-            printf("\033[32m");
-            printf("Sending verdict for original A record ... id: %d, len: %d\n", res->id, res->original_len);
-            printf("\033[0m");
-            int ret = nfq_set_verdict(qh, id, NF_ACCEPT, res->original_len, res->original_payload);
+        // 因为没有改IP报头，IP的Checksum不需要更新
 
-            free(res->original_payload);
-            free(res);
+        // UDP报头中的Checksum是包含负载一起计算的，所以需要更新。但是可以置0忽略。
+        // udph->check = 0;  // 先清零
+        fix_udp_checksum(payload, len); 
 
-            if (ret < 0)
-                perror("nfq_set_verdict");
-            else
-                printf("Verdict sent successfully.\n");
-            printf("------\n");
-
-            return ret;
-        }
-
-        printf("No pending response found for domain: %s, let pass\n", domain);
+        return nfq_set_verdict(qh, id, NF_ACCEPT, len, payload);
+    }
+    else
+    {
+        // Host does not support DART, let it pass
     }
 
-out:
     printf("Sending verdict for unprocessed packet ... id: %d, len: %d\n", id, len);
-    // hex_dump("Unprocessed packet", payload, len);
-    printf("------\n");
     return nfq_set_verdict(qh, id, NF_ACCEPT, len, payload);
 }
 

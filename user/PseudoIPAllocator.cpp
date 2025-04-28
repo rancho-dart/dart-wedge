@@ -1,4 +1,4 @@
-#include "pseudo_ip_allocator.h"
+#include "PseudoIPAllocator.h"
 #include <iostream>
 #include <arpa/inet.h>
 
@@ -11,17 +11,19 @@ PseudoIPAllocator::PseudoIPAllocator() {
     }
 }
 
-std::optional<std::string> PseudoIPAllocator::query(const std::string &domain) {
+std::optional<uint32_t> PseudoIPAllocator::query(const std::string &domain) {
     auto it = domain_to_entry.find(domain);
     if (it != domain_to_entry.end()) {
         it->second.last_access = std::chrono::steady_clock::now();
-        return ip_to_str(it->second.pseudo_ip);
+        return it->second.pseudo_ip;
     }
     return std::nullopt;
 }
 
-std::optional<std::string> PseudoIPAllocator::allocate(const std::string &domain, const std::string &real_ip, uint32_t ttl) {
-    if (auto found = query(domain); found.has_value()) return found;
+std::optional<uint32_t> PseudoIPAllocator::allocate(const std::string &domain, uint32_t real_ip, uint32_t ttl) {
+    if (auto found = query(domain); found.has_value()) {
+        return found.value();
+    }
 
     while (!free_ips.empty()) {
         uint32_t candidate = free_ips.front();
@@ -30,7 +32,7 @@ std::optional<std::string> PseudoIPAllocator::allocate(const std::string &domain
         if (ip_to_entry.find(candidate) == ip_to_entry.end()) {
             Entry e;
             e.domain = domain;
-            e.real_ip = real_ip;
+            e.real_ip = real_ip;  // 直接使用 uint32_t 类型的 real_ip
             e.pseudo_ip = candidate;
             e.last_access = std::chrono::steady_clock::now();
             e.ttl = ttl;
@@ -38,14 +40,14 @@ std::optional<std::string> PseudoIPAllocator::allocate(const std::string &domain
             domain_to_entry[domain] = e;
             ip_to_entry[candidate] = e;
 
-            return ip_to_str(candidate);
+            return candidate;
         }
     }
     return std::nullopt;
 }
 
-std::optional<std::string> PseudoIPAllocator::get_domain_from_pseudo_ip(const std::string &pseudo_ip_str) {
-    uint32_t ip = ntohl(inet_addr(pseudo_ip_str.c_str()));
+std::optional<std::string> PseudoIPAllocator::get_domain_from_pseudo_ip(uint32_t pseudo_ip_str) {
+    uint32_t ip = ntohl(pseudo_ip_str);
     auto it = ip_to_entry.find(ip);
     if (it != ip_to_entry.end()) {
         return it->second.domain;
@@ -53,7 +55,7 @@ std::optional<std::string> PseudoIPAllocator::get_domain_from_pseudo_ip(const st
     return std::nullopt;
 }
 
-std::optional<std::string> PseudoIPAllocator::get_pseudo_ip_from_domain(const std::string &domain) {
+std::optional<uint32_t> PseudoIPAllocator::get_pseudo_ip_from_domain(const std::string &domain) {
     return query(domain);
 }
 
