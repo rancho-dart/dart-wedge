@@ -18,20 +18,19 @@ struct Entry {
 class PseudoIPAllocator {
 public:
     PseudoIPAllocator();
-
     std::optional<uint32_t> query(const std::string &domain);
     std::optional<uint32_t> allocate(const std::string &domain, uint32_t real_ip, uint32_t ttl);
+    std::optional<std::pair<std::string, uint32_t>> get_domain_from_pseudo_ip(uint32_t pseudo_ip_str);
     std::optional<uint32_t> get_pseudo_ip_from_domain(const std::string &domain);
-    std::optional<std::string> get_domain_from_pseudo_ip(uint32_t pseudo_ip_str);
-
     void cleanup_expired_entries();
+    std::string ip_to_str(uint32_t ip);
+    bool is_pseudo_ip(uint32_t ip);
 
 private:
     std::unordered_map<std::string, Entry> domain_to_entry;
     std::unordered_map<uint32_t, Entry> ip_to_entry;
     std::queue<uint32_t> free_ips;
 
-    static std::string ip_to_str(uint32_t ip);
 };
 
 #endif // PSEUDO_IP_ALLOCATOR_H

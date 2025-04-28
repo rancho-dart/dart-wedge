@@ -64,7 +64,10 @@
         "semaphore": "cpp",
         "stop_token": "cpp",
         "thread": "cpp",
-        "cinttypes": "cpp"
+        "cinttypes": "cpp",
+        "netdb.h": "c",
+        "pseudo_ip_c_api.h": "c",
+        "inet.h": "c"
     },
     "files.exclude": {
         "**/*.o": true,

@@ -46,11 +46,11 @@ std::optional<uint32_t> PseudoIPAllocator::allocate(const std::string &domain, u
     return std::nullopt;
 }
 
-std::optional<std::string> PseudoIPAllocator::get_domain_from_pseudo_ip(uint32_t pseudo_ip_str) {
+std::optional<std::pair<std::string, uint32_t>> PseudoIPAllocator::get_domain_from_pseudo_ip(uint32_t pseudo_ip_str) {
     uint32_t ip = ntohl(pseudo_ip_str);
     auto it = ip_to_entry.find(ip);
     if (it != ip_to_entry.end()) {
-        return it->second.domain;
+        return std::make_pair(it->second.domain, it->second.real_ip);
     }
     return std::nullopt;
 }
@@ -82,4 +82,10 @@ std::string PseudoIPAllocator::ip_to_str(uint32_t ip) {
     struct in_addr addr;
     addr.s_addr = htonl(ip);
     return inet_ntoa(addr);
+}
+
+bool PseudoIPAllocator::is_pseudo_ip(uint32_t ip) {
+    uint32_t start_ip = ntohl(inet_addr("198.18.0.0"));
+    uint32_t end_ip = ntohl(inet_addr("198.19.255.255"));
+    return ip >= start_ip && ip <= end_ip;
 }

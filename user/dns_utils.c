@@ -95,9 +95,9 @@ int follow_cname_chain(const unsigned char *dns_pkt, int len, char *domain_out, 
             if (strcmp(cname_chain_node, name) == 0)
             {
                 strcpy(domain_out, domain);
-                if (strcmp(domain, name) != 0)  // A record is provided by none-original domain (domain -> cname -> A)
+                if (strcmp(domain, name) != 0) // A record is provided by none-original domain (domain -> cname -> A)
                     strcpy(cname_out, name);
-                else                            // A record is provided by original domain (domain -> A)
+                else // A record is provided by original domain (domain -> A)
                     strcpy(cname_out, "");
                 memcpy(ip_out, ptr, sizeof(*ip_out));
                 *a_record_pos = ptr - dns_pkt; // 记录 A 记录的位置
@@ -511,4 +511,43 @@ int extract_final_a_domain(const unsigned char *payload, int len, char *domain_o
     }
 
     return -1;
+}
+
+int get_dhcp_domain(char *domain)
+{
+    FILE *fp = fopen("/etc/resolv.conf", "r");
+    if (!fp)
+        return -1;
+
+    char line[256];
+
+    while (fgets(line, sizeof(line), fp))
+    {
+        if (strstr(line, "search ") == line || strstr(line, "domain ") == line)
+        {
+            char *start = strchr(line, ' ') + 1;
+            char *end = strchr(start, '\n');
+            if (end)
+                *end = '\0';
+            strcpy(domain, start);
+            break;
+        }
+    }
+    fclose(fp);
+    return 0;
+}
+
+void get_full_fqdn(char *fqdn)
+{
+    char hostname[256];
+    if (gethostname(hostname, sizeof(hostname)) != 0)
+    {
+        return;
+    }
+
+    char domain[256];
+    get_dhcp_domain(domain); 
+
+    sprintf(fqdn, "%s.%s", hostname, domain);
+    return ; 
 }

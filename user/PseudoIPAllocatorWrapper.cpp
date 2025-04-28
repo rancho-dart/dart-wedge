@@ -3,6 +3,12 @@
 #include <cstring>
 #include <map>
 
+// 定义结构体 DomainInfo
+struct DomainInfo {
+    std::string domain;
+    uint32_t real_ip;
+};
+
 extern "C"
 {
 
@@ -19,6 +25,15 @@ extern "C"
         return 0; // 返回 0 表示失败
     }
 
+    bool is_pseudo_ip(uint32_t ip)
+    {
+        auto is = allocator.is_pseudo_ip(ip);
+        if (is)
+        {
+            return is;
+        }
+        return false;
+    }
     uint32_t query_pseudo_ip(const char *domain)
     {
         auto ip = allocator.query(domain);
@@ -29,16 +44,17 @@ extern "C"
         return 0; // 返回 0 表示失败
     }
 
-    const char *get_domain_by_pseudo_ip(uint32_t pseudo_ip_str)
+    // 修改 get_domain_by_pseudo_ip 函数以返回 DomainInfo 结构体
+    DomainInfo get_domain_by_pseudo_ip(uint32_t pseudo_ip_str)
     {
-        static std::string result;
-        auto domain = allocator.get_domain_from_pseudo_ip(pseudo_ip_str);
-        if (domain)
+        DomainInfo result;
+        auto domain_pair = allocator.get_domain_from_pseudo_ip(pseudo_ip_str);
+        if (domain_pair)
         {
-            result = *domain;
-            return result.c_str();
+            result.domain = domain_pair->first;
+            result.real_ip = domain_pair->second;
         }
-        return nullptr;
+        return result;
     }
 
     void cleanup_expired()
