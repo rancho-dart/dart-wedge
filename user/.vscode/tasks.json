@@ -16,7 +16,7 @@
                 "${workspaceFolder}/checksum.c",
                 "${workspaceFolder}/txt_query_thread.c",
                 "${workspaceFolder}/pseudo_ip_capi.cpp",
-                // "${workspaceFolder}/PseudoIPAllocator.cpp",
+                "${workspaceFolder}/pseudo_ip_allocator.cpp",
                 // "${workspaceFolder}/PseudoIPAllocatorWrapper.cpp",
                 "-lnetfilter_queue",
                 "-lresolv",

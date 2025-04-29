@@ -9,7 +9,7 @@ void pseudo_ip_allocator_init() {
     // g_allocator已经自动构造，不需要特别处理
 }
 
-const PseudoIPEntryC* pseudo_ip_allocator_allocate(const char* domain, uint32_t real_ip) {
+const PseudoIPEntryC* pseudo_ip_allocator_allocate(const char* domain, nbo_ipv4_t real_ip) {
     static PseudoIPEntryC entry_c;
     auto* entry = g_allocator.allocate(domain, real_ip);
     if (entry) {
@@ -21,7 +21,7 @@ const PseudoIPEntryC* pseudo_ip_allocator_allocate(const char* domain, uint32_t 
     return nullptr;
 }
 
-const PseudoIPEntryC* pseudo_ip_allocator_find_by_pseudo_ip(uint32_t pseudo_ip) {
+const PseudoIPEntryC* pseudo_ip_allocator_find_by_pseudo_ip(nbo_ipv4_t pseudo_ip) {
     static PseudoIPEntryC entry_c;
     auto* entry = g_allocator.find_by_pseudo_ip(pseudo_ip);
     if (entry) {
@@ -53,7 +53,7 @@ void pseudo_ip_allocator_cleanup(uint64_t now) {
     g_allocator.cleanup(now);
 }
 
-bool is_pseudo_ip(uint32_t ip) {
-    ip = ntohl(ip); // 转为主机字节序再判断
-    return (ip >= 0xC6120000 && ip <= 0xC613FFFF); // 198.18.0.0 ~ 198.19.255.255
+bool is_pseudo_ip(nbo_ipv4_t ip) {
+    // ip = ntohl(ip); // 网络字节序转主机字节序
+    return g_allocator.is_pseudo_ip(ip);
 }

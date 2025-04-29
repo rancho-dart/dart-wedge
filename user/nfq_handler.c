@@ -59,6 +59,14 @@ char localhost_fqdn[256];
 // 新增全局链表头指针
 struct pending_response_node *response_chain_head = NULL;
 
+char * ip_to_str(uint32_t ip)
+{
+    static char ip_str[INET_ADDRSTRLEN];
+
+    inet_ntop(AF_INET, &ip, ip_str, INET_ADDRSTRLEN);
+    return ip_str;
+}
+
 int modify_a_record_ip(unsigned char *dns_payload, int dns_len, const char *new_ip)
 {
     // 假设我们要修改的 A 记录在 dns_payload 中
@@ -263,7 +271,7 @@ static int cb_inbound_dns(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg, struc
     {
         printf("Host %s supports DART\n", domain);
 
-        const PseudoIPEntryC* entry = pseudo_ip_allocator_allocate(domain, ntohl(ip.s_addr));
+        const PseudoIPEntryC* entry = pseudo_ip_allocator_allocate(domain, ip.s_addr);
 
         if (entry == NULL)
         {
@@ -271,7 +279,7 @@ static int cb_inbound_dns(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg, struc
             return nfq_set_verdict(qh, id, NF_ACCEPT, len, payload);
         }
 
-        pseudo_ip_addr.s_addr = htonl(entry->pseudo_ip);
+        pseudo_ip_addr.s_addr = entry->pseudo_ip;
         char *pseudo_ip_str = strdup(inet_ntoa(pseudo_ip_addr));
         char *ip_str = strdup(inet_ntoa(ip));
         printf("Replace real IP %s with pseudo IP %s\n", ip_str, pseudo_ip_str);
@@ -285,8 +293,8 @@ static int cb_inbound_dns(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg, struc
         // 因为没有改IP报头，IP的Checksum不需要更新
 
         // UDP报头中的Checksum是包含负载一起计算的，所以需要更新。但是可以置0忽略。
-        // udph->check = 0;  // 先清零
-        fix_udp_checksum(payload, len);
+        udph->check = 0;  // 先清零
+        // fix_udp_checksum(payload, len);
 
         return nfq_set_verdict(qh, id, NF_ACCEPT, len, payload);
     }
@@ -299,7 +307,7 @@ static int cb_inbound_dns(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg, struc
     return nfq_set_verdict(qh, id, NF_ACCEPT, len, payload);
 }
 
-int insert_dart_headers(unsigned char *orig_pkt, int orig_len, const char *dest_fqdn, const char *src_fqdn,
+int insert_dart_headers(unsigned char *orig_pkt, int orig_len, nbo_ipv4_t dest_ip, const char *dest_fqdn, const char *src_fqdn,
                         unsigned char *new_pkt, int *new_len)
 {
     // 根据我们的设计，DART协议将由2层组成：
@@ -326,13 +334,17 @@ int insert_dart_headers(unsigned char *orig_pkt, int orig_len, const char *dest_
 
     *new_len = orig_len + sizeof(struct udphdr) + dart_header_len;
     memcpy(new_pkt, orig_pkt, ip_header->ihl * 4);
+    struct iphdr *ip_header_for_dart = (struct iphdr *)new_pkt;
+    ip_header_for_dart->tot_len  = htons(*new_len);
+    ip_header_for_dart->protocol = IPPROTO_UDP;
+    ip_header_for_dart->daddr = dest_ip;
+    fix_ip_checksum(new_pkt, *new_len);        
 
     struct udphdr *udp_header_for_dart = (struct udphdr *)(new_pkt + ip_header->ihl * 4);
     udp_header_for_dart->source = htons(DART_PORT);
     udp_header_for_dart->dest = htons(DART_PORT);
-    udp_header_for_dart->len = htons(sizeof(struct udphdr) + dart_header_len + ip_payload_len);
+    udp_header_for_dart->len = htons(*new_len - ip_header->ihl * 4);
     udp_header_for_dart->check = 0;
-    fix_udp_checksum(new_pkt, *new_len);
 
     struct dart_header *dart_header = (struct dart_header *)(udp_header_for_dart + 1);
     dart_header->version = DART_VERSION;
@@ -350,31 +362,44 @@ int insert_dart_headers(unsigned char *orig_pkt, int orig_len, const char *dest_
     void *dart_payload = dart_header_src + dart_header->saddr_len;
     memcpy(dart_payload, ip_payload, ip_payload_len);
 
-    fix_udp_checksum(new_pkt, *new_len);
+    fix_udp_checksum(new_pkt, *new_len);  // 因为UDP校验和包含整个报文的内容，所以要在全部数据设置完成后计算
 
-    // // 重新计算IP校验和（必要步骤）
-    // new_ip->check = ip_checksum(new_ip, sizeof(struct iphdr));
     return 0;
 }
 
 static int cb_outbound_ip(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg, struct nfq_data *nfa, void *data)
 {
-    unsigned char *payload;
-    int payload_len = nfq_get_payload(nfa, &payload);
-    if (payload_len <= 0)
+    int len = 0;
+    uint32_t id = 0;
+    unsigned char *payload = NULL;
+
+    struct nfqnl_msg_packet_hdr *ph = nfq_get_msg_packet_hdr(nfa);
+    if (!ph)
     {
-        return nfq_set_verdict(qh, 0, NF_ACCEPT, 0, NULL); // 错误时直接放行
+        printf("Invalid packet header, letting the packet pass.\n");
+        return nfq_set_verdict(qh, id, NF_ACCEPT, len, payload);
+    }
+
+    id = ntohl(ph->packet_id);
+    len = nfq_get_payload(nfa, &payload);
+
+    if (len < 0)
+    {
+        printf("Failed to get payload, letting the packet pass.\n");
+        return nfq_set_verdict(qh, id, NF_ACCEPT, len, payload);
     }
 
     struct iphdr *ip_header = (struct iphdr *)payload;
     if (ip_header->version != 4)
     {
-        return nfq_set_verdict(qh, 0, NF_ACCEPT, 0, NULL); // 非IPv4放行
+        printf("Invalid IP version, letting the packet pass.\n");
+        return nfq_set_verdict(qh, id, NF_ACCEPT, len, payload); // 非IPv4放行
     }
+    // printf("Received packet from %s\n", ip_to_str(ip_header->saddr));
 
     if (ip_header->protocol != IPPROTO_UDP && ip_header->protocol != IPPROTO_TCP && ip_header->protocol != IPPROTO_ICMP)
     {
-        return nfq_set_verdict(qh, 0, NF_ACCEPT, 0, NULL);
+        return nfq_set_verdict(qh, id, NF_ACCEPT, len, payload);
     }
 
     // If is dns or dhcp packet, 放行
@@ -383,21 +408,25 @@ static int cb_outbound_ip(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg, struc
         struct udphdr *udp_header = (struct udphdr *)(payload + ip_header->ihl * 4);
         if (udp_header->dest == htons(DNS_PORT) || udp_header->dest == htons(DHCP_PORT))
         {
-            return nfq_set_verdict(qh, 0, NF_ACCEPT, 0, NULL);
+            printf("Received DNS or DHCP packet, pass it\n");
+            return nfq_set_verdict(qh, id, NF_ACCEPT, len, payload);
         }
     }
+
+    printf("Received packet from %s\n", ip_to_str(ip_header->saddr));
 
     if (!is_pseudo_ip(ip_header->daddr))
     {
         // 如果不是发往伪IP，则直接放行
-        return nfq_set_verdict(qh, 0, NF_ACCEPT, 0, NULL);
+        printf("Not a pseudo IP packet(%s), pass it\n", ip_to_str(ip_header->daddr));
+        return nfq_set_verdict(qh, id, NF_ACCEPT, len, payload);
     }
     
     const PseudoIPEntryC* entry = pseudo_ip_allocator_find_by_pseudo_ip(ip_header->daddr);
     if (entry == NULL)
     {
-        printf("Failed to find pseudo IP entry for %s\n", ip_header->daddr);
-        return nfq_set_verdict(qh, 0, NF_ACCEPT, 0, NULL);
+        printf("Failed to find pseudo IP entry for %s\n", ip_to_str(ip_header->daddr));
+        return nfq_set_verdict(qh, id, NF_ACCEPT, len, payload);
     }
 
     const char *dest_fqdn = entry->domain;
@@ -405,14 +434,19 @@ static int cb_outbound_ip(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg, struc
 
     // 修改报文：插入UDP头和Dart头
     unsigned char modified_pkt[2048]; // MTU(1500) + DART(2*256 + 4) + UDP(8) = 2024 这是插入了Dart头后的报文最大长度
-    int new_len;
-    if (insert_dart_headers(payload, payload_len, dest_fqdn, src_fqdn, modified_pkt, &new_len) != 0)
+    int modified_pkt_len;
+    if (insert_dart_headers(payload, len, entry->real_ip, dest_fqdn, src_fqdn, modified_pkt, &modified_pkt_len) != 0)
     {
-        return nfq_set_verdict(qh, 0, NF_ACCEPT, 0, NULL); // 插入失败则放行原始报文
+        return nfq_set_verdict(qh, id, NF_ACCEPT, len, payload);
     }
 
     // 放行修改后的报文
-    return nfq_set_verdict(qh, 0, NF_ACCEPT, new_len, modified_pkt);
+    printf("Original packet from %s, id: %d, length: %d\n", ip_to_str(ip_header->saddr), id, len);
+    hex_dump("Packet:", payload, len);
+
+    printf("Modified packet from %s, id: %d, length: %d\n", ip_to_str(ip_header->saddr), id, modified_pkt_len);
+    hex_dump("Modified packet:", modified_pkt, modified_pkt_len);
+    return nfq_set_verdict(qh, id, NF_ACCEPT, modified_pkt_len, modified_pkt);
 }
 
 int main()
@@ -463,6 +497,7 @@ int main()
         perror("nfq_set_mode");
         exit(1);
     }
+    printf("Listening on queue %d for inbound DNS packets...\n", NFQUEUE_INBOUND_DNS_NO);
 
     // 为出站的IP报文创建队列
     struct nfq_q_handle *qh_outbound_ip = nfq_create_queue(h, NFQUEUE_OUTBOUND_IP_NO, &cb_outbound_ip, NULL);
@@ -476,6 +511,7 @@ int main()
         perror("nfq_set_mode");
         exit(1);
     }
+    printf("Listening on queue %d for outbound IP packets...\n", NFQUEUE_OUTBOUND_IP_NO);
 
     int fd = nfq_fd(h);
     char buf[4096] __attribute__((aligned));
