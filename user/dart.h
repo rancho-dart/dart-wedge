@@ -1,5 +1,5 @@
-#ifndef DART_H
-#define DART_H
+#pragma once
+
 #include <stdint.h>
 
 #include <stdbool.h>
@@ -15,7 +15,10 @@
 #include <errno.h>
 
 #define DART_VERSION 1
-#define DART_PORT 0xDA27 // 2 sounds like R, 7 looks like T
+#define DART_UDP_PORT 0xDA27 // 2 sounds like R, 7 looks like T
+#define DART_MAX_NAME_LENGTH 256
+#define MAX_DART_PKG_LEN (IP_MTU + 2 * DART_MAX_NAME_LENGTH + 4 + 8)  // 4 is the fixed part of Dart header, 8 is the len of udp
+
 
 struct dart_header
 {
@@ -26,9 +29,12 @@ struct dart_header
     // char daddr[256];  // 这两个变量因为是变长的，因此不适合在结构中定义
     // char saddr[256];
 };
+
+#define daddr_of_dart(dart_header) ((char *)((char *)(dart_header) + 4))
+#define saddr_of_dart(dart_header) ((char *)((char *)(dart_header) + 4 + (dart_header)->daddr_len))
+
 int serialize_udp_header(const struct iphdr *ip_header, uint8_t *udp_out);
 void deserialize_udp_header(const uint8_t *buf, struct sockaddr_in *daddr, struct sockaddr_in *saddr);
 int serialize_dart_header(const struct dart_header *h, uint8_t *buf);
 void deserialize_dart_header(const uint8_t *buf, struct dart_header *h);
 
-#endif

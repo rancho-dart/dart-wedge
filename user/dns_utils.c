@@ -6,6 +6,7 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include "dns_utils.h"
+#include "common.h"
 
 bool traversing_question_sec(const unsigned char *payload, size_t len, const unsigned char **ptr, char *domain_out)
 {
@@ -113,7 +114,7 @@ int follow_cname_chain(const unsigned char *dns_pkt, int len, char *domain_out, 
 
 void hex_dump(const char *msg, const unsigned char *data, size_t len)
 {
-    printf("%s Hex Dump:\n", msg);
+    printf("%s Hex Dump(length : %d):\n", msg, (int)len);
     for (size_t i = 0; i < len; i += 16)
     {
         printf("%08zx  ", i); // 打印偏移地址
@@ -292,7 +293,7 @@ bool is_txt_record_response(const unsigned char *dns_pkt, size_t len, int *versi
 }
 
 // 读取系统默认的 DNS 服务器
-int get_system_dns_servers(char *dns_servers[], int max_servers)
+int get_system_dns_servers(nbo_ipv4_t dns_servers[], int max_servers)
 {
     FILE *fp = fopen(DNS_CONF_PATH, "r");
     if (!fp)
@@ -321,7 +322,7 @@ int get_system_dns_servers(char *dns_servers[], int max_servers)
                 struct in_addr dummy;
                 if (inet_pton(AF_INET, addr, &dummy) == 1)
                 {
-                    dns_servers[count++] = strdup(addr);
+                    dns_servers[count++] = dummy.s_addr;
                 }
             }
         }
@@ -332,7 +333,7 @@ int get_system_dns_servers(char *dns_servers[], int max_servers)
 }
 
 // 新增全局变量：存储 DNS 服务器列表
-char *g_dns_servers[MAX_DNS_SERVERS] = {0};
+nbo_ipv4_t g_dns_servers[MAX_DNS_SERVERS] = {0};
 int g_dns_server_count = 0;
 
 // 新增初始化函数：在程序启动时读取 DNS 服务器列表
@@ -355,76 +356,76 @@ bool init_dns_servers()
     return true;
 }
 
-int send_txt_query(const char *domain)
-{
-    const int dns_port = 53;
+// int send_txt_query(const char *domain)
+// {
+//     const int dns_port = 53;
 
-    // 确保 DNS 服务器列表已初始化
-    if (!init_dns_servers())
-    {
-        fprintf(stderr, "No valid DNS servers found\n");
-        return -1;
-    }
+//     // 确保 DNS 服务器列表已初始化
+//     if (!init_dns_servers())
+//     {
+//         fprintf(stderr, "No valid DNS servers found\n");
+//         return -1;
+//     }
 
-    for (int i = 0; i < g_dns_server_count && g_dns_servers[i]; i++)
-    {
-        struct sockaddr_in server_addr = {0};
-        server_addr.sin_family = AF_INET;
-        server_addr.sin_port = htons(dns_port);
+//     for (int i = 0; i < g_dns_server_count && g_dns_servers[i]; i++)
+//     {
+//         struct sockaddr_in server_addr = {0};
+//         server_addr.sin_family = AF_INET;
+//         server_addr.sin_port = htons(dns_port);
 
-        if (inet_pton(AF_INET, g_dns_servers[i], &server_addr.sin_addr) <= 0)
-        {
-            continue;
-        }
+//         if (inet_pton(AF_INET, g_dns_servers[i], &server_addr.sin_addr) <= 0)
+//         {
+//             continue;
+//         }
 
-        int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
-        if (sockfd < 0)
-        {
-            continue;
-        }
+//         int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+//         if (sockfd < 0)
+//         {
+//             continue;
+//         }
 
-        // 构造 DNS 报文
-        unsigned char dns_pkt[512] = {0};
-        HEADER *dns_hdr = (HEADER *)dns_pkt;
-        dns_hdr->id = htons(rand() & 0xffff);
-        dns_hdr->qr = 0;
-        dns_hdr->opcode = 0;
-        dns_hdr->rd = 1;
-        dns_hdr->qdcount = htons(1);
+//         // 构造 DNS 报文
+//         unsigned char dns_pkt[512] = {0};
+//         HEADER *dns_hdr = (HEADER *)dns_pkt;
+//         dns_hdr->id = htons(rand() & 0xffff);
+//         dns_hdr->qr = 0;
+//         dns_hdr->opcode = 0;
+//         dns_hdr->rd = 1;
+//         dns_hdr->qdcount = htons(1);
 
-        unsigned char *cur = dns_pkt + sizeof(HEADER);
-        const char *p = domain;
-        while (*p)
-        {
-            const char *start = p;
-            while (*p && *p != '.')
-                p++;
-            *cur++ = p - start;
-            memcpy(cur, start, p - start);
-            cur += p - start;
-            if (*p == '.')
-                p++;
-        }
-        *cur++ = 0;
+//         unsigned char *cur = dns_pkt + sizeof(HEADER);
+//         const char *p = domain;
+//         while (*p)
+//         {
+//             const char *start = p;
+//             while (*p && *p != '.')
+//                 p++;
+//             *cur++ = p - start;
+//             memcpy(cur, start, p - start);
+//             cur += p - start;
+//             if (*p == '.')
+//                 p++;
+//         }
+//         *cur++ = 0;
 
-        uint16_t qtype = htons(ns_t_txt);
-        uint16_t qclass = htons(ns_c_in);
-        memcpy(cur, &qtype, sizeof(qtype));
-        cur += sizeof(qtype);
-        memcpy(cur, &qclass, sizeof(qclass));
-        cur += sizeof(qclass);
+//         uint16_t qtype = htons(ns_t_txt);
+//         uint16_t qclass = htons(ns_c_in);
+//         memcpy(cur, &qtype, sizeof(qtype));
+//         cur += sizeof(qtype);
+//         memcpy(cur, &qclass, sizeof(qclass));
+//         cur += sizeof(qclass);
 
-        int pkt_len = cur - dns_pkt;
-        sendto(sockfd, dns_pkt, pkt_len, 0, (struct sockaddr *)&server_addr, sizeof(server_addr));
+//         int pkt_len = cur - dns_pkt;
+//         sendto(sockfd, dns_pkt, pkt_len, 0, (struct sockaddr *)&server_addr, sizeof(server_addr));
 
-        close(sockfd);
+//         close(sockfd);
 
-        // 成功发出一个就算成功
-        return 0;
-    }
+//         // 成功发出一个就算成功
+//         return 0;
+//     }
 
-    return -1;
-}
+//     return -1;
+// }
 
 int extract_final_a_domain(const unsigned char *payload, int len, char *domain_out)
 {

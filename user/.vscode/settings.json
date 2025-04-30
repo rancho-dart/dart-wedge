@@ -67,7 +67,9 @@
         "cinttypes": "cpp",
         "netdb.h": "c",
         "pseudo_ip_c_api.h": "c",
-        "inet.h": "c"
+        "inet.h": "c",
+        "in.h": "c",
+        "tcp.h": "c"
     },
     "files.exclude": {
         "**/*.o": true,

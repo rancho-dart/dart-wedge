@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "common.h"
 
 #define DNS_PORT 53
 #define DHCP_PORT 67
@@ -17,7 +18,7 @@
 #define MAX_DNS_SERVERS 3
 #define DNS_CONF_PATH "/etc/resolv.conf"
 
-extern char *g_dns_servers[MAX_DNS_SERVERS] ;
+extern nbo_ipv4_t g_dns_servers[MAX_DNS_SERVERS] ;
 extern int g_dns_server_count ;
 
 bool init_dns_servers();

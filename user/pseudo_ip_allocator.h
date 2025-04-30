@@ -2,15 +2,13 @@
 #include <unordered_map>
 #include <string>
 #include <cstdint>
+#include "common.h"
 
 #define PSEUDO_IP_BASE        ((198U << 24) | (18U << 16)) // 198.18.0.0
 #define PSEUDO_IP_MASK        0xFFFE0000U                  // /15 子网掩码
 #define PSEUDO_IP_POOL_SIZE   0x20000U                     // 2^17 = 131072 地址
 
-typedef uint32_t nbo_ipv4_t;  // Network Byte Order IPv4 address
-typedef uint16_t nbo_port_t;  // Network Byte Order Port
-typedef uint32_t hbo_ipv4_t;  // Host Byte Order IPv4 address
-typedef uint16_t hbo_port_t;  // Host Byte Order Port
+
 
 struct PseudoIPEntry {
     std::string domain;

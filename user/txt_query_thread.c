@@ -40,7 +40,7 @@ void *txt_query_worker(void *arg) {
         pthread_mutex_unlock(&queue_lock);
 
         // 发送 TXT 查询（你已有的函数）
-        send_txt_query(task.domain);
+        // send_txt_query(task.domain);
 
         // 可加入 sleep 避免风暴
         usleep(1000); // 假设每个任务需要 1ms
