@@ -370,7 +370,7 @@ static int process_inbound_dart(struct nfq_q_handle *qh, uint32_t id, int len, u
 
     fix_ip_checksum((uint8_t *)new_payload);
 
-    hex_dump("Restored inbound packet:", new_payload, new_len);
+    // hex_dump("Restored inbound packet:", new_payload, new_len);
     return nfq_set_verdict(qh, id, NF_ACCEPT, new_len, new_payload);
 }
 
@@ -591,22 +591,18 @@ static int cb_outbound_ip(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg, struc
     // 修改报文：插入UDP头和Dart头
     unsigned char modified_pkt[MAX_DART_PKG_LEN]; // MTU(1500) + DART(2*256 + 4) + UDP(8) = 2024 这是插入了Dart头后的报文最大长度
     int modified_pkt_len;
-    if (insert_dart_headers(payload, len, entry->real_ip, dest_fqdn, src_fqdn, modified_pkt, &modified_pkt_len) != 0)
-    {
-        if (modified_pkt_len > ETH_DATA_LEN)
-        {
-            // TODO: 插入Dart头后，报文长度大于MTU，发送一个ICMP PACKAGE TOO BIG给源地址
+    insert_dart_headers(payload, len, entry->real_ip, dest_fqdn, src_fqdn, modified_pkt, &modified_pkt_len);
 
-            // 原报文直接丢弃
-            printf("Packet too big after inserting DART header, dropping it\n");
-            return nfq_set_verdict(qh, id, NF_DROP, 0, NULL);
-        }
-        return nfq_set_verdict(qh, id, NF_ACCEPT, len, payload);
+    if (modified_pkt_len > ETH_DATA_LEN)
+    {
+        // 因为我们插入了DART报头，报文超过了MTU。设置IP报头允许分片然后丢给操作系统，操作系统会分片
+        struct iphdr *ip_header = (struct iphdr *)modified_pkt;
+        ip_header->frag_off = htons(ntohs(ip_header->frag_off) & ~IP_DF);
     }
 
     // 放行修改后的报文
-    hex_dump("Original packet:", payload, len);
-    hex_dump("Modified packet:", modified_pkt, modified_pkt_len);
+    // hex_dump("Original packet:", payload, len);
+    // hex_dump("Modified packet:", modified_pkt, modified_pkt_len);
     return nfq_set_verdict(qh, id, NF_ACCEPT, modified_pkt_len, modified_pkt);
 }
 

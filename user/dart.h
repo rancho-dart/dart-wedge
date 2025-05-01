@@ -17,7 +17,7 @@
 #define DART_VERSION 1
 #define DART_UDP_PORT 0xDA27 // 2 sounds like R, 7 looks like T
 #define DART_MAX_NAME_LENGTH 256
-#define MAX_DART_PKG_LEN (IP_MTU + 2 * DART_MAX_NAME_LENGTH + 4 + 8)  // 4 is the fixed part of Dart header, 8 is the len of udp
+#define MAX_DART_PKG_LEN (ETH_DATA_LEN + 2 * DART_MAX_NAME_LENGTH + 4 + 8)  // 4 is the fixed part of Dart header, 8 is the len of udp
 
 
 struct dart_header
