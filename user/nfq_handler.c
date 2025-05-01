@@ -278,7 +278,7 @@ static bool is_processable_inbound_pkt(struct nfq_data *nfa, unsigned char **pay
         return true;
     else
     {
-        printf("Unhandled UDP packet, letting it pass(id: %d, udp sport: %d).\n", *id, ntohs(udph->source));
+        // printf("Unhandled UDP packet, letting it pass(id: %d, udp sport: %d).\n", *id, ntohs(udph->source));
         return false;
     }
 }
@@ -298,6 +298,7 @@ static bool is_processable_outbound_pkt(struct nfq_data *nfa, uint32_t *id, int 
     if (ip_header->protocol == IPPROTO_UDP)
     {
         struct udphdr *udph = (struct udphdr *)(*payload + ip_header->ihl * 4);
+        printf("UDP packet, dport: %d.\n", ntohs(udph->dest));
         if (udph->dest == htons(DNS_PORT) || udph->dest == htons(DHCP_PORT))
             return false;
         else
@@ -369,6 +370,7 @@ static int process_inbound_dart(struct nfq_q_handle *qh, uint32_t id, int len, u
 
     fix_ip_checksum((uint8_t *)new_payload);
 
+    hex_dump("Restored inbound packet:", new_payload, new_len);
     return nfq_set_verdict(qh, id, NF_ACCEPT, new_len, new_payload);
 }
 
@@ -494,6 +496,22 @@ int insert_dart_headers(unsigned char *orig_pkt, int orig_len, nbo_ipv4_t dest_i
     void *dart_payload = dart_header_src + dart_header->saddr_len;
     memcpy(dart_payload, ip_payload, ip_payload_len);
 
+    if (ip_header->protocol == IPPROTO_UDP)
+    {
+        // 原始的UDP报文现在是DART报文的Payload，在网络中传输的时候不会有网络设备检查这一层的校验和，本来是无所谓的
+        // 但是在WireShark中如果打开了UDP校验和检查，这一层的检验和也会报错，所以这里不妨设置成0
+        // 报文在抵达目标主机后会被剥去DART报头并重新计算校验和
+        struct udphdr *new_udph = (struct udphdr *)dart_payload;
+        new_udph->check = 0;
+    }
+    else if (ip_header->protocol == IPPROTO_TCP)
+    {
+        // TCP报文的校验和就算设置成0也不会被忽略，姑且设置一下
+        // 报文在抵达目标主机后会被剥去DART报头并重新计算校验和
+        struct tcphdr *new_tcph = (struct tcphdr *)dart_payload;
+        new_tcph->check = 0;
+    }
+
     fix_udp_checksum(new_pkt); // 因为UDP校验和包含整个报文的内容，所以要在全部数据设置完成后计算
 
     return 0;
@@ -532,33 +550,6 @@ static int cb_outbound_ip(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg, struc
     int len = 0;
     uint32_t id = 0;
     unsigned char *payload = NULL;
-    // struct nfqnl_msg_packet_hdr *ph = nfq_get_msg_packet_hdr(nfa);
-    // if (!ph)
-    // {
-    //     printf("Invalid packet header, letting it pass.\n");
-    //     return nfq_set_verdict(qh, id, NF_ACCEPT, len, payload);
-    // }
-
-    // id = ntohl(ph->packet_id);
-    // len = nfq_get_payload(nfa, &payload);
-
-    // if (len < 0)
-    // {
-    //     printf("Failed to get payload, letting it pass.\n");
-    //     return nfq_set_verdict(qh, id, NF_ACCEPT, len, payload);
-    // }
-
-    // struct iphdr *ip_header = (struct iphdr *)payload;
-    // if (ip_header->version != 4)
-    // {
-    //     printf("Invalid IP version, letting it pass.\n");
-    //     return nfq_set_verdict(qh, id, NF_ACCEPT, len, payload); // 非IPv4放行
-    // }
-
-    // if (ip_header->protocol != IPPROTO_UDP && ip_header->protocol != IPPROTO_TCP && ip_header->protocol != IPPROTO_ICMP)
-    // {
-    //     return nfq_set_verdict(qh, id, NF_ACCEPT, len, payload);
-    // }
 
     if (!is_processable_outbound_pkt(nfa, &id, &len, &payload))
     {
@@ -573,7 +564,7 @@ static int cb_outbound_ip(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg, struc
         struct udphdr *udp_header = (struct udphdr *)(payload + ip_header->ihl * 4);
         if (udp_header->dest == htons(DNS_PORT) || udp_header->dest == htons(DHCP_PORT))
         {
-            printf("Received DNS or DHCP packet, pass it\n");
+            printf("Outgoing DNS or DHCP packet intercepted, pass it\n");
             return nfq_set_verdict(qh, id, NF_ACCEPT, len, payload);
         }
     }
@@ -602,7 +593,7 @@ static int cb_outbound_ip(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg, struc
     int modified_pkt_len;
     if (insert_dart_headers(payload, len, entry->real_ip, dest_fqdn, src_fqdn, modified_pkt, &modified_pkt_len) != 0)
     {
-        if (modified_pkt_len > IP_MTU)
+        if (modified_pkt_len > ETH_DATA_LEN)
         {
             // TODO: 插入Dart头后，报文长度大于MTU，发送一个ICMP PACKAGE TOO BIG给源地址
 
@@ -614,8 +605,8 @@ static int cb_outbound_ip(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg, struc
     }
 
     // 放行修改后的报文
-    // hex_dump("Original packet:", payload, len);
-    // hex_dump("Modified packet:", modified_pkt, modified_pkt_len);
+    hex_dump("Original packet:", payload, len);
+    hex_dump("Modified packet:", modified_pkt, modified_pkt_len);
     return nfq_set_verdict(qh, id, NF_ACCEPT, modified_pkt_len, modified_pkt);
 }
 

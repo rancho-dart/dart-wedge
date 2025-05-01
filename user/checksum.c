@@ -87,9 +87,11 @@ void fix_tcp_checksum(uint8_t *ip_packet)
         return;
 
     int ip_header_len = iph->ihl * 4;
+    int ip_pkt_len = ntohs(iph->tot_len);
 
     struct tcphdr *tcph = (struct tcphdr *)(ip_packet + ip_header_len);
-    int tcp_len = ntohs(tcph->doff) * 4;
+    // int tcp_len = ntohs(tcph->doff) * 4;
+    int tcp_len = ip_pkt_len - ip_header_len;
 
     // 构造伪首部
     struct
