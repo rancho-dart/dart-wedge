@@ -21,7 +21,6 @@
 #include <arpa/inet.h>
 #include <assert.h>
 #include "dns_utils.h" // 包含 extract_final_a_domain 和 query_txt_record 的声明
-#include "txt_query.thread.h"
 // #include "pseudo_ip_c_api.h"
 #include "checksum.h"
 #include "dart.h"
@@ -94,7 +93,7 @@ int insert_pending_response(const char *domain, uint32_t id, unsigned char *payl
     if (!res)
         return -1;
 
-    strncpy(res->domain, domain, MAX_DOMAIN_LEN);
+    strncpy(res->domain, domain, MAX_DOMAIN_LEN-1);
     res->id = id;
     res->original_payload = (unsigned char *)malloc(len);
     if (!res->original_payload)
@@ -376,8 +375,6 @@ static int process_inbound_dart(struct nfq_q_handle *qh, uint32_t id, int len, u
 
 static int process_inbound_dns(struct nfq_q_handle *qh, uint32_t id, int len, unsigned char *payload)
 {
-    bool support_dart = false;
-
     struct iphdr *iph = (struct iphdr *)payload;
 
     if (!is_dns_server(iph->saddr))
@@ -388,7 +385,6 @@ static int process_inbound_dns(struct nfq_q_handle *qh, uint32_t id, int len, un
     struct udphdr *udph = (struct udphdr *)(payload + iph->ihl * 4);
 
     unsigned char *dns_pkt = payload + iph->ihl * 4 + sizeof(struct udphdr);
-    int dns_pkt_len = len - (dns_pkt - payload);
 
     char domain[MAX_DOMAIN_LEN] = {0};
     char cname[MAX_DOMAIN_LEN] = {0};
@@ -519,6 +515,9 @@ int insert_dart_headers(unsigned char *orig_pkt, int orig_len, nbo_ipv4_t dest_i
 
 static int cb_inbound_udp(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg, struct nfq_data *nfa, void *data)
 {
+    (void)nfmsg;
+    (void)data;
+
     int len = 0;
     uint32_t id = 0;
     unsigned char *payload = NULL;
@@ -547,6 +546,9 @@ static int cb_inbound_udp(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg, struc
 
 static int cb_outbound_ip(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg, struct nfq_data *nfa, void *data)
 {
+    (void)nfmsg;
+    (void)data;
+    
     int len = 0;
     uint32_t id = 0;
     unsigned char *payload = NULL;
@@ -637,10 +639,6 @@ int main()
     get_full_fqdn(localhost_fqdn);
     printf("Localhost FQDN: %s\n", localhost_fqdn);
 
-    pthread_t worker_thread;
-    pthread_create(&worker_thread, NULL, txt_query_worker, NULL);
-    pthread_detach(worker_thread); // 设置为分离线程，主线程退出时，子线程也会退出
-
     struct nfq_handle *h = nfq_open(); // 创建一个 netfilter queue
     if (!h)
     {
@@ -688,6 +686,7 @@ int main()
     }
 
     nfq_destroy_queue(qh_inbound_dns);
+    nfq_destroy_queue(qh_outbound_ip);
     nfq_close(h);
     return 0;
 }

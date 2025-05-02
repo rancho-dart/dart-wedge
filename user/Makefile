@@ -1,7 +1,8 @@
 # === 项目配置 ===
-TARGET      := nfq_handler
-SRCS        := nfq_handler.c dns_utils.c
+TARGET      := dart_wedge
+SRCS        := dart_wedge.c dns_utils.c checksum.c pseudo_ip_capi.cpp pseudo_ip_allocator.cpp
 OBJS        := $(SRCS:.c=.o)
+OBJS        := $(OBJS:.cpp=.o)
 
 # === 目录 ===
 BUILD_DIR   := build
@@ -9,9 +10,9 @@ BIN_DIR     := bin
 OUT_BIN     := $(BIN_DIR)/$(TARGET)
 
 # === 编译器及选项 ===
-CC          := gcc
+CXX         := g++
 CFLAGS      := -Wall -Wextra -g -O2 -I.
-LDFLAGS     := -L/usr/lib -lnetfilter_queue -lresolv
+LDFLAGS     := -L/usr/lib -lnetfilter_queue -lresolv -lpthread
 
 # === 系统工具变量 ===
 RM          := rm -f
@@ -23,20 +24,29 @@ QUEUE_NUM_INBOUND_UDP  := 100
 QUEUE_NUM_OUTBOUND_IP  := 101
 
 PROTO       := udp
-PORT_DNS        := 53
+PORT_DNS    := 53
+DART_INF	:= ens37
 
 # === 默认目标 ===
-.PHONY: all
-all: $(OUT_BIN)
+.PHONY: all build clean rebuild install uninstall
+all: build
 
-# 创建 bin/ 和 build/ 并编译
+build: $(OUT_BIN)
+
 $(OUT_BIN): $(addprefix $(BUILD_DIR)/, $(OBJS))
 	@$(MKDIR) $(BIN_DIR)
-	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+	$(CXX) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
+# 编译 .c 文件
 $(BUILD_DIR)/%.o: %.c
 	@$(MKDIR) $(BUILD_DIR)
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(CXX) $(CFLAGS) -c $< -o $@
+
+# 编译 .cpp 文件
+$(BUILD_DIR)/%.o: %.cpp
+	@$(MKDIR) $(BUILD_DIR)
+	$(CXX) $(CFLAGS) -c $< -o $@
+
 
 # === 安装规则 ===
 .PHONY: install
@@ -45,16 +55,18 @@ install:
 # 因为所有的DART报文都有一个UDP头，同时我们需要处理的DNS/DHCP报文也都是UDP报文，所以只需要截获UDP报文到NFQUEUE即可
 # 对于出站的报文，除了DNS和DHCP报文，其他TCP/UDP/ICMP(ECHO/ECHOREPLY)报文都需要添加DART协议报头，所以截获IP到NFQUEUE
 	@echo "添加 iptables NFQUEUE 规则..."
-	$(INSTALL) -i ens37 -I INPUT  -p udp -j NFQUEUE --queue-num $(QUEUE_NUM_INBOUND_UDP)
-	$(INSTALL) -o ens37 -I OUTPUT -p ip  -j NFQUEUE --queue-num $(QUEUE_NUM_OUTBOUND_IP)	
+	$(INSTALL) -I INPUT  -i lo -p udp -j NFQUEUE --queue-num $(QUEUE_NUM_INBOUND_UDP)
+	$(INSTALL) -I INPUT  -i $(DART_INF) -p udp -j NFQUEUE --queue-num $(QUEUE_NUM_INBOUND_UDP)
+	$(INSTALL) -I OUTPUT -o $(DART_INF) -p ip  -j NFQUEUE --queue-num $(QUEUE_NUM_OUTBOUND_IP)	
 	
 
 # === 卸载规则 ===
 .PHONY: uninstall
 uninstall:
 	@echo "移除 iptables NFQUEUE 规则..."
-	-$(INSTALL) -i ens37 -D INPUT  -p udp -j NFQUEUE --queue-num $(QUEUE_NUM_INBOUND_UDP)
-	-$(INSTALL) -o ens37 -D OUTPUT -p ip  -j NFQUEUE --queue-num $(QUEUE_NUM_OUTBOUND_IP)	
+	-$(INSTALL) -D INPUT  -i lo -p udp -j NFQUEUE --queue-num $(QUEUE_NUM_INBOUND_UDP)
+	-$(INSTALL) -D INPUT  -i $(DART_INF) -p udp -j NFQUEUE --queue-num $(QUEUE_NUM_INBOUND_UDP)
+	-$(INSTALL) -D OUTPUT -o $(DART_INF) -p ip  -j NFQUEUE --queue-num $(QUEUE_NUM_OUTBOUND_IP)	
 
 # === 清理 ===
 .PHONY: clean

@@ -5,7 +5,7 @@
             "name": "Debug nfq_handler",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/nfq_handler",
+            "program": "${workspaceFolder}/bin/dart_wedge",
             "args": [],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
@@ -20,7 +20,7 @@
                     "ignoreFailures": true
                 }
             ],
-            "preLaunchTask": "build nfq_handler"
+            "preLaunchTask": "Build with Make"
         }
     ]
 }

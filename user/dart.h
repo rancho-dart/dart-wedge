@@ -33,8 +33,4 @@ struct dart_header
 #define daddr_of_dart(dart_header) ((char *)((char *)(dart_header) + 4))
 #define saddr_of_dart(dart_header) ((char *)((char *)(dart_header) + 4 + (dart_header)->daddr_len))
 
-int serialize_udp_header(const struct iphdr *ip_header, uint8_t *udp_out);
-void deserialize_udp_header(const uint8_t *buf, struct sockaddr_in *daddr, struct sockaddr_in *saddr);
-int serialize_dart_header(const struct dart_header *h, uint8_t *buf);
-void deserialize_dart_header(const uint8_t *buf, struct dart_header *h);
 

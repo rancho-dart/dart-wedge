@@ -22,7 +22,6 @@ extern nbo_ipv4_t g_dns_servers[MAX_DNS_SERVERS] ;
 extern int g_dns_server_count ;
 
 bool init_dns_servers();
-int send_txt_query(const char *domain);
 
 // bool is_txt_record_response(const unsigned char *dns_pkt, size_t len, int *version, char *domain);
 // bool is_a_record_response(const unsigned char *payload, size_t len, char *domain);

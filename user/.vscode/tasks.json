@@ -2,33 +2,15 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "build nfq_handler",
+            "label": "Build with Make",
             "type": "shell",
-            "command": "g++",
-            "args": [
-                "-g",
-                "-std=c++17",
-                "-I/usr/include/libnetfilter_queue",
-                "-o",
-                "${workspaceFolder}/nfq_handler",
-                "${workspaceFolder}/nfq_handler.c",
-                "${workspaceFolder}/dns_utils.c",
-                "${workspaceFolder}/checksum.c",
-                "${workspaceFolder}/txt_query_thread.c",
-                "${workspaceFolder}/pseudo_ip_capi.cpp",
-                "${workspaceFolder}/pseudo_ip_allocator.cpp",
-                // "${workspaceFolder}/PseudoIPAllocatorWrapper.cpp",
-                "-lnetfilter_queue",
-                "-lresolv",
-                "-lpthread"
-            ],
+            "command": "make",
+            "args": ["build"],
             "group": {
                 "kind": "build",
                 "isDefault": true
             },
-            "problemMatcher": [
-                "$gcc"
-            ]
+            "problemMatcher": ["$gcc"]
         }
     ]
 }

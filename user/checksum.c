@@ -3,7 +3,6 @@
 #include <string.h>
 #include <netinet/ip.h>  // struct iphdr
 #include <netinet/udp.h> // struct udphdr
-#define __USE_MISC  
 #include <netinet/tcp.h> // struct tcphdr
 #include <arpa/inet.h>   // htons, ntohs
 

@@ -39,11 +39,11 @@ int follow_cname_chain(const unsigned char *dns_pkt, int len, char *domain_out, 
     const unsigned char *end = dns_pkt + len;
     const unsigned char *ptr = dns_pkt + sizeof(HEADER);
 
-    if (len < sizeof(HEADER))
+    if ((size_t)len < sizeof(HEADER))
         return -1;
     //
     HEADER *dns = (HEADER *)dns_pkt;
-    int qdcount = ntohs(dns->qdcount);
+    // int qdcount = ntohs(dns->qdcount);
     int ancount = ntohs(dns->ancount);
 
     char domain[MAX_DOMAIN_LEN];
@@ -68,9 +68,9 @@ int follow_cname_chain(const unsigned char *dns_pkt, int len, char *domain_out, 
 
         uint16_t type = ntohs(*(uint16_t *)ptr);
         ptr += 2;
-        uint16_t qclass = ntohs(*(uint16_t *)ptr);
+        // uint16_t qclass = ntohs(*(uint16_t *)ptr);
         ptr += 2;
-        uint32_t ttl = ntohl(*(uint32_t *)ptr);
+        // uint32_t ttl = ntohl(*(uint32_t *)ptr);
         ptr += 4;
         uint16_t rdlength = ntohs(*(uint16_t *)ptr);
         ptr += 2;
@@ -259,7 +259,7 @@ bool is_txt_record_response(const unsigned char *dns_pkt, size_t len, int *versi
                 cur += 4;
 
                 // 获取 TTL 和 RDLENGTH
-                uint32_t ttl = ntohl(*(uint32_t *)cur);
+                // uint32_t ttl = ntohl(*(uint32_t *)cur);
                 cur += 4;
                 uint16_t rdlength = ntohs(*(uint16_t *)cur);
                 cur += 2;
@@ -356,83 +356,13 @@ bool init_dns_servers()
     return true;
 }
 
-// int send_txt_query(const char *domain)
-// {
-//     const int dns_port = 53;
-
-//     // 确保 DNS 服务器列表已初始化
-//     if (!init_dns_servers())
-//     {
-//         fprintf(stderr, "No valid DNS servers found\n");
-//         return -1;
-//     }
-
-//     for (int i = 0; i < g_dns_server_count && g_dns_servers[i]; i++)
-//     {
-//         struct sockaddr_in server_addr = {0};
-//         server_addr.sin_family = AF_INET;
-//         server_addr.sin_port = htons(dns_port);
-
-//         if (inet_pton(AF_INET, g_dns_servers[i], &server_addr.sin_addr) <= 0)
-//         {
-//             continue;
-//         }
-
-//         int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
-//         if (sockfd < 0)
-//         {
-//             continue;
-//         }
-
-//         // 构造 DNS 报文
-//         unsigned char dns_pkt[512] = {0};
-//         HEADER *dns_hdr = (HEADER *)dns_pkt;
-//         dns_hdr->id = htons(rand() & 0xffff);
-//         dns_hdr->qr = 0;
-//         dns_hdr->opcode = 0;
-//         dns_hdr->rd = 1;
-//         dns_hdr->qdcount = htons(1);
-
-//         unsigned char *cur = dns_pkt + sizeof(HEADER);
-//         const char *p = domain;
-//         while (*p)
-//         {
-//             const char *start = p;
-//             while (*p && *p != '.')
-//                 p++;
-//             *cur++ = p - start;
-//             memcpy(cur, start, p - start);
-//             cur += p - start;
-//             if (*p == '.')
-//                 p++;
-//         }
-//         *cur++ = 0;
-
-//         uint16_t qtype = htons(ns_t_txt);
-//         uint16_t qclass = htons(ns_c_in);
-//         memcpy(cur, &qtype, sizeof(qtype));
-//         cur += sizeof(qtype);
-//         memcpy(cur, &qclass, sizeof(qclass));
-//         cur += sizeof(qclass);
-
-//         int pkt_len = cur - dns_pkt;
-//         sendto(sockfd, dns_pkt, pkt_len, 0, (struct sockaddr *)&server_addr, sizeof(server_addr));
-
-//         close(sockfd);
-
-//         // 成功发出一个就算成功
-//         return 0;
-//     }
-
-//     return -1;
-// }
 
 int extract_final_a_domain(const unsigned char *payload, int len, char *domain_out)
 {
     const unsigned char *end = payload + len;
     const unsigned char *ptr = payload + sizeof(HEADER);
 
-    if (len < sizeof(HEADER))
+    if ((size_t)len < sizeof(HEADER))
         return -1;
 
     HEADER *dns = (HEADER *)payload;
@@ -467,9 +397,9 @@ int extract_final_a_domain(const unsigned char *payload, int len, char *domain_o
 
         uint16_t type = ntohs(*(uint16_t *)ptr);
         ptr += 2;
-        uint16_t qclass = ntohs(*(uint16_t *)ptr);
+        // uint16_t qclass = ntohs(*(uint16_t *)ptr);
         ptr += 2;
-        uint32_t ttl = ntohl(*(uint32_t *)ptr);
+        // uint32_t ttl = ntohl(*(uint32_t *)ptr);
         ptr += 4;
         uint16_t rdlength = ntohs(*(uint16_t *)ptr);
         ptr += 2;
